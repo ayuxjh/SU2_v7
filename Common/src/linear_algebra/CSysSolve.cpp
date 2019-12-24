@@ -334,6 +334,50 @@ unsigned long CSysSolve<ScalarType>::FGMRES_LinSolver(const CSysVector<ScalarTyp
                                                       CMatrixVectorProduct<ScalarType> & mat_vec, CPreconditioner<ScalarType> & precond,
                                                       ScalarType tol, unsigned long m, ScalarType *residual, bool monitoring, CConfig *config) {
 
+//****************** write the b and x **************************
+
+  const char* filename1 = "./bin/x.dat" ;
+  const char* filename2 = "./bin/b.dat";
+
+
+  FILE *bfile;
+  unsigned long size;
+  if((bfile = fopen(filename1,"wb")) == NULL)
+    {
+        printf("can not open x.dat file\n");
+    }
+
+  size = x.GetSize();
+  fwrite(&size,sizeof(size),1,bfile);
+  fwrite(&x[0],sizeof(x[0]) * ( size ),1,bfile);
+  
+  printf("writed x %ld rows size: %ld\n",size,sizeof(x[0]));
+  
+  fclose(bfile);
+    
+  if((bfile = fopen(filename2,"wb")) == NULL)
+    {
+        printf("can not open b.dat file\n");
+    }
+
+  size = b.GetSize();
+  fwrite(&size,sizeof(size),1,bfile);
+  fwrite(&b[0],sizeof(b[0]) * ( size ),1,bfile);
+
+  printf("writed b %ld rows size: %ld\n",size,sizeof(b[0]));
+
+  fclose(bfile);
+
+  
+  SU2_MPI::Error("terminate write the matrix and vector", CURRENT_FUNCTION);
+
+
+
+//****************** write end ***********************************
+  
+  
+  
+  
   int rank = SU2_MPI::GetRank();
 
   /*---  Check the subspace size ---*/

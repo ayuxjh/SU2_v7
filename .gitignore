@@ -3,6 +3,7 @@
 *.lo
 *.o
 *.optrpt
+ninja
 
 # Autoconf/Automake
 *.Po
@@ -80,4 +81,4 @@ Mercurial
 .hg*
 
 # Ignore build folder
-./build/
+build

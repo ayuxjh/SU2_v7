@@ -815,6 +815,56 @@ void CSysMatrix<ScalarType>::ComputeJacobiPreconditioner(const CSysVector<Scalar
 template<class ScalarType>
 void CSysMatrix<ScalarType>::BuildILUPreconditioner(bool transposed) {
 
+//*****************write the matrix ****************************
+  const char* filename1 = "./bin/row_ptr.dat" ;
+  const char* filename2 = "./bin/col_ind.dat";
+  const char* filename3 = "./bin/value.dat";
+
+  FILE *bfile;
+  
+  if((bfile = fopen(filename1,"wb")) == NULL)
+    {
+        printf("can not open row_ptr.dat file\n");
+    }
+
+  fwrite(&nPointDomain,sizeof(nPointDomain),1,bfile);
+  fwrite(&row_ptr[0],sizeof(row_ptr[0]) * (nPointDomain+ 1),1,bfile);
+  
+  printf("writed row_ptr %ld rows size: %d[nPoint:%d]\n",nPointDomain,sizeof(row_ptr[0]),nPoint);
+  
+  fclose(bfile);
+    
+  if((bfile = fopen(filename2,"wb")) == NULL)
+    {
+        printf("can not open col_ind.dat file\n");
+    }
+  fwrite(&row_ptr[nPointDomain],sizeof(row_ptr[nPointDomain]),1,bfile);
+  fwrite(&col_ind[0],sizeof(col_ind[0])* row_ptr[nPointDomain],1,bfile);
+
+  printf("writed col_ind %ld cols size: %d\n",row_ptr[nPointDomain],sizeof(col_ind[0]));
+
+  fclose(bfile);
+
+    
+  if((bfile = fopen(filename3,"wb")) == NULL)
+    {
+        printf("can not open value.dat file\n");
+    }
+  fwrite(&row_ptr[nPointDomain],sizeof(row_ptr[nPointDomain]),1,bfile);
+  fwrite(&matrix[0],sizeof(matrix[0]) * row_ptr[nPointDomain] * nVar *nEqn,1,bfile);
+
+  printf("writed matrix %d [%dx%d] value size: %d[nnz: %d nnz_ilu: %d]\n",row_ptr[nPointDomain],nVar,nEqn,sizeof(matrix[0]),nnz, nnz_ilu);
+
+  fclose(bfile);
+
+  // SU2_MPI::Error("terminate write the matrix", CURRENT_FUNCTION);
+
+
+//******************write the matrix end*************************
+
+
+
+
   unsigned long index, index_, iVar;
   ScalarType *Block_ij;
   const ScalarType *Block_jk;
