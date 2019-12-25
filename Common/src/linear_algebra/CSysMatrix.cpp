@@ -963,7 +963,7 @@ void CSysMatrix<ScalarType>::BuildILUPreconditioner(bool transposed) {
   printf("writed matrix_complete %d [%dx%d] value size: %d[nnz: %d nnz_ilu: %d]\n",row_ptr[nPointDomain],nVar,nEqn,sizeof(ILU_matrix[0]),nnz, nnz_ilu);
 
   fclose(bfile);
-  SU2_MPI::Error("terminate write the matrix", CURRENT_FUNCTION);
+  // SU2_MPI::Error("terminate write the matrix", CURRENT_FUNCTION);
 }
 
 template<class ScalarType>
