@@ -816,6 +816,7 @@ template<class ScalarType>
 void CSysMatrix<ScalarType>::BuildILUPreconditioner(bool transposed) {
 
 //*****************write the matrix ****************************
+  
   const char* filename1 = "./bin/row_ptr.dat" ;
   const char* filename2 = "./bin/col_ind.dat";
   const char* filename3 = "./bin/value.dat";
@@ -950,6 +951,19 @@ void CSysMatrix<ScalarType>::BuildILUPreconditioner(bool transposed) {
 
   InverseDiagonalBlock_ILUMatrix(nPointDomain-1, &invM[(nPointDomain-1)*nVar*nVar]);
 
+  const char* filename4 = "./bin/value_complete.dat";
+
+  if((bfile = fopen(filename4,"wb")) == NULL)
+  {
+      printf("can not open value_complete.dat file\n");
+  }
+  fwrite(&row_ptr[nPointDomain],sizeof(row_ptr[nPointDomain]),1,bfile);
+  fwrite(&ILU_matrix[0],sizeof(ILU_matrix[0]) * row_ptr[nPointDomain] * nVar *nEqn,1,bfile);
+
+  printf("writed matrix_complete %d [%dx%d] value size: %d[nnz: %d nnz_ilu: %d]\n",row_ptr[nPointDomain],nVar,nEqn,sizeof(ILU_matrix[0]),nnz, nnz_ilu);
+
+  fclose(bfile);
+  SU2_MPI::Error("terminate write the matrix", CURRENT_FUNCTION);
 }
 
 template<class ScalarType>
