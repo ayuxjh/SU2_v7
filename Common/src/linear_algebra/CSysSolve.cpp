@@ -412,7 +412,9 @@ unsigned long CSysSolve<ScalarType>::FGMRES_LinSolver(const CSysVector<ScalarTyp
   }
 
   /*---  Loop over all search directions ---*/
-
+  clock_t start_Smoother,end_Smoother;
+  double elapsed_Smoother = 0.0;
+  
   for (i = 0; i < (int)m; i++) {
 
     /*---  Check if solution has converged ---*/
@@ -420,9 +422,10 @@ unsigned long CSysSolve<ScalarType>::FGMRES_LinSolver(const CSysVector<ScalarTyp
     if (beta < tol*norm0) break;
 
     /*---  Precondition the CSysVector w[i] and store result in z[i] ---*/
-
+    start_Smoother = clock();
     precond(W[i], Z[i]);
-
+    end_Smoother = clock();
+    elapsed_Smoother = (double) (end_Smoother - start_Smoother)/CLOCKS_PER_SEC;
     /*---  Add to Krylov subspace ---*/
 
     mat_vec(Z[i], W[i+1]);
@@ -448,7 +451,7 @@ unsigned long CSysSolve<ScalarType>::FGMRES_LinSolver(const CSysVector<ScalarTyp
     if ((((monitoring) && (rank == MASTER_NODE)) && ((i+1) % 10 == 0)) && (rank == MASTER_NODE)) WriteHistory(i+1, beta, norm0);
 
   }
-
+  cout << "Smoother Time:" << elapsed_Smoother << endl;
   /*---  Solve the least-squares system and update solution ---*/
 
   SolveReduced(i, H, g, y);
@@ -855,6 +858,9 @@ unsigned long CSysSolve<ScalarType>::Solve(CSysMatrix<ScalarType> & Jacobian, CS
   CMatrixVectorProduct<ScalarType>* mat_vec = new CSysMatrixVectorProduct<ScalarType>(Jacobian, geometry, config);
   CPreconditioner<ScalarType>* precond = NULL;
 
+  clock_t start_Precond,end_Precond;
+  start_Precond = clock();
+  
   switch (KindPrecond) {
     case JACOBI:
       Jacobian.BuildJacobiPreconditioner();
@@ -880,6 +886,13 @@ unsigned long CSysSolve<ScalarType>::Solve(CSysMatrix<ScalarType> & Jacobian, CS
       precond = new CJacobiPreconditioner<ScalarType>(Jacobian, geometry, config);
       break;
   }
+
+  end_Precond = clock();
+  double elapsed_Precond = (double) (end_Precond - start_Precond)/CLOCKS_PER_SEC;
+  cout << "preconditon Time:" << elapsed_Precond << endl;
+  
+  clock_t start_Solver,end_Solver;
+  start_Solver = clock();
 
   switch (KindSolver) {
     case BCGSTAB:
@@ -912,6 +925,10 @@ unsigned long CSysSolve<ScalarType>::Solve(CSysMatrix<ScalarType> & Jacobian, CS
     default:
       SU2_MPI::Error("Unknown type of linear solver.",CURRENT_FUNCTION);
   }
+
+  end_Solver = clock();
+  double elapsed_Solver = (double) (end_Solver - start_Solver)/CLOCKS_PER_SEC;
+  cout << "FGMRES Solver Time:" << elapsed_Solver << endl;
 
   delete mat_vec;
   delete precond;
