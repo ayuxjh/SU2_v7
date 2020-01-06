@@ -816,7 +816,7 @@ unsigned long CSysSolve<ScalarType>::Solve(CSysMatrix<ScalarType> & Jacobian, CS
     MaxIter      = config->GetLinear_Solver_Iter();
     RestartIter  = config->GetLinear_Solver_Restart_Frequency();
     SolverTol    = SU2_TYPE::GetValue(config->GetLinear_Solver_Error());
-    ScreenOutput = false;
+    ScreenOutput = true;
   }
 
   /*--- Mesh Deformation mode ---*/

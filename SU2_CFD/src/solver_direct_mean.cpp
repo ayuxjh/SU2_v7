@@ -5186,9 +5186,12 @@ void CEulerSolver::ImplicitEuler_Iteration(CGeometry *geometry, CSolver **solver
   }
   
   /*--- Solve or smooth the linear system ---*/
-  
+  clock_t start,end;
+  start = clock();
   IterLinSol = System.Solve(Jacobian, LinSysRes, LinSysSol, geometry, config);
-  
+  end = clock();
+  double elapsed = (double) (end - start)/CLOCKS_PER_SEC;
+  cout << "Total Time:" << elapsed << endl;
   /*--- Store the value of the residual. ---*/
   
   SetResLinSolver(System.GetResidual());
