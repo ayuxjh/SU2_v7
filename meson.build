@@ -138,6 +138,12 @@ elif get_option('enable-openblas')
 
 endif
 
+# add AmgX library
+cuda_dep = dependency('cuda', version : '==9.2')
+amgx_dep = declare_dependency(include_directories:['../../../AMGX_first/AMGX/base/include/','../../../AMGX_first/AMGX/core/include'],link_args:['-L../../../AMGX_first/AMGX/build','-lamgxsh','-lrt','-ldl','-Wl,-rpath=/home/jianheng.xue/AMGX_first/AMGX/build/libamgxsh.so'])
+su2_deps += cuda_dep
+su2_deps += amgx_dep
+
 # compile common library
 subdir('Common/src')
 # compile SU2_CFD executable
