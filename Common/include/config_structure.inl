@@ -2073,3 +2073,7 @@ inline unsigned short* CConfig::GetVolumeOutputFiles() {return VolumeOutputFiles
 inline unsigned short CConfig::GetnVolumeOutputFiles() {return nVolumeOutputFiles;}
 
 inline bool CConfig::OptionIsSet(string option){ return all_options.find(option) == all_options.end();}
+
+inline bool CConfig::GetGPUCalculate(void){ return gpu_calculate;}
+
+inline string CConfig::GetAMGXFilename(void){ return Amgx_FileName; }

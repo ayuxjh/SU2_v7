@@ -2511,6 +2511,11 @@ void CConfig::SetConfig_Options() {
   /* DESCRIPTION: Level of fill for PaStiX incomplete LU factorization. */
   addUnsignedShortOption("PASTIX_FILL_LEVEL", pastix_fill_lvl, 1);
 
+
+  /* DESCRIPTION:  AmgX input file */
+  addBoolOption("GPU_CALCULATE", gpu_calculate, false);
+  addStringOption("AMGX_FILENAME", Amgx_FileName, string("amgx.json")); 
+
   /* END_CONFIG_OPTIONS */
 
 }
