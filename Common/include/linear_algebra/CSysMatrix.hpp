@@ -648,6 +648,21 @@ public:
    */
   void ComputePastixPreconditioner(const CSysVector<ScalarType> & vec, CSysVector<ScalarType> & prod, CGeometry *geometry, CConfig *config);
 
+  unsigned long GetNNZ()
+  {
+   return nnz; 
+  }
+
+  unsigned long* Getrow_ptr()
+  {
+   return row_ptr; 
+  }
+
+  unsigned long* Getcol_ind()
+  {
+   return col_ind; 
+  }
+
 };
 
 #ifdef CODI_REVERSE_TYPE

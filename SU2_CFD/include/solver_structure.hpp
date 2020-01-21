@@ -69,6 +69,10 @@
 #include "variables/CDiscAdjFEABoundVariable.hpp"
 #include "variables/CMeshElement.hpp"
 
+
+#include "cuda_runtime.h"
+#include "amgx_c.h"
+
 using namespace std;
 
 /*!
@@ -170,6 +174,33 @@ protected:
    * \note One could set base_nodes directly if it were not private but that could lead to confusion
    */
   inline void SetBaseClassPointerToNodes() { base_nodes = GetBaseClassPointerToNodes(); }
+
+  bool GPU_On;
+  int gpu_count;
+  int lrank;
+  bool Run_First;
+
+  AMGX_Mode mode;
+  AMGX_config_handle cfg;
+  AMGX_resources_handle rsrc;
+  AMGX_matrix_handle A;
+  AMGX_vector_handle b, x;
+  AMGX_solver_handle solver;
+  //status handling
+  AMGX_SOLVE_STATUS status;
+  void *lib_handle;
+  
+  int nrings; //=1;
+  int n, nnz, block_dimx, block_dimy, block_size, num_neighbors;
+  int *neighbors;
+  int *h_row_ptrs, *h_col_indices;
+  su2double *h_values, *h_diag, *h_x, *h_b;
+  int sizeof_m_val;
+  int sizeof_v_val;
+  int *send_sizes;
+  int **send_maps;
+  int *recv_sizes;
+  int **recv_maps;
 
 private:
 

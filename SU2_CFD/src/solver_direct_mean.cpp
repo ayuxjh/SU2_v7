@@ -890,6 +890,48 @@ CEulerSolver::CEulerSolver(CGeometry *geometry, CConfig *config, unsigned short 
   /*--- Add the solver name (max 8 characters) ---*/
   SolverName = "C.FLOW";
 
+  /*--- Initialize the AmgX solver --- */
+  if(config->GetGPUCalculate())
+  {
+    GPU_On = true;
+    printf("Call the Amgx api function in CEulerSolver\n"); 
+    cudaGetDeviceCount(&gpu_count);
+
+    lrank = rank / gpu_count;
+
+    cudaSetDevice(lrank);
+
+    /* init */
+    AMGX_SAFE_CALL(AMGX_initialize());
+    AMGX_SAFE_CALL(AMGX_initialize_plugins());
+    /* system */
+    AMGX_SAFE_CALL(AMGX_install_signal_handler());
+    /* get mode */  
+    mode = AMGX_mode_dDDI;
+
+    sizeof_m_val = ((AMGX_GET_MODE_VAL(AMGX_MatPrecision, mode) == AMGX_matDouble)) ? sizeof(double) : sizeof(float);
+    sizeof_v_val = ((AMGX_GET_MODE_VAL(AMGX_VecPrecision, mode) == AMGX_vecDouble)) ? sizeof(double) : sizeof(float);
+
+    /* create config */
+    AMGX_SAFE_CALL(AMGX_config_create_from_file(&cfg, config->GetAMGXFilename().c_str()));
+
+    /* switch on internal error handling (no need to use AMGX_SAFE_CALL after this point) */
+    AMGX_SAFE_CALL(AMGX_config_add_parameters(&cfg, "exception_handling=1"));
+    /* create resources, matrix, vector and solver */
+    AMGX_SAFE_CALL(AMGX_resources_create(&rsrc, cfg, config->GetMPICommunicator(), 1, &lrank));
+    AMGX_SAFE_CALL(AMGX_matrix_create(&A, rsrc, mode));
+    AMGX_SAFE_CALL(AMGX_vector_create(&x, rsrc, mode));
+    AMGX_SAFE_CALL(AMGX_vector_create(&b, rsrc, mode));
+    AMGX_SAFE_CALL(AMGX_solver_create(&solver, rsrc, mode, cfg));
+
+    AMGX_SAFE_CALL(AMGX_config_get_default_number_of_rings(cfg, &nrings));
+
+    h_col_indices = (int *)malloc( Jacobian.GetNNZ() * sizeof(int));
+    h_row_ptrs = (int *)malloc( (nPointDomain + 1)*sizeof(int));
+
+  }
+
+
 }
 
 CEulerSolver::~CEulerSolver(void) {
@@ -1356,6 +1398,33 @@ CEulerSolver::~CEulerSolver(void) {
   }
 
   if (nodes != nullptr) delete nodes;
+
+
+  /* --- Run the gpu postprocessing in EulerSolver\n --- */
+  if(GPU_On)
+  {
+    AMGX_SAFE_CALL(AMGX_free_system_maps_one_ring(h_row_ptrs, h_col_indices, h_values, h_diag, h_b, h_x, num_neighbors, neighbors, send_sizes, send_maps, recv_sizes, recv_maps));
+    // AMGX_free_system_maps_one_ring(h_row_ptrs, h_col_indices, h_values, h_diag, h_b, h_x, num_neighbors, neighbors, send_sizes, send_maps, recv_sizes, recv_maps);
+    /* destroy resources, matrix, vector and solver */
+    AMGX_SAFE_CALL(AMGX_solver_destroy(solver));
+    AMGX_SAFE_CALL(AMGX_vector_destroy(x));
+    AMGX_SAFE_CALL(AMGX_vector_destroy(b));
+    AMGX_SAFE_CALL(AMGX_matrix_destroy(A));
+    AMGX_SAFE_CALL(AMGX_resources_destroy(rsrc));
+    /* destroy config (need to use AMGX_SAFE_CALL after this point) */
+    AMGX_SAFE_CALL(AMGX_config_destroy(cfg));
+    /* shutdown and exit */
+    AMGX_SAFE_CALL(AMGX_finalize_plugins());
+    AMGX_SAFE_CALL(AMGX_finalize());
+    /* close the library (if it was dynamically loaded) */
+
+    cudaDeviceReset();
+
+    free(h_row_ptrs);
+    free(h_col_indices);
+    printf("complete run the gpu postprocessing in EulerSolver\n");
+  }  
+
 }
 
 void CEulerSolver::InitTurboContainers(CGeometry *geometry, CConfig *config){
@@ -5114,7 +5183,7 @@ void CEulerSolver::ImplicitEuler_Iteration(CGeometry *geometry, CSolver **solver
   unsigned short iVar, jVar;
   unsigned long iPoint, total_index, IterLinSol = 0;
   su2double Delta, *local_Res_TruncError, Vol;
-  
+
   bool adjoint = config->GetContinuous_Adjoint();
   bool roe_turkel = config->GetKind_Upwind_Flow() == TURKEL;
   bool low_mach_prec = config->Low_Mach_Preconditioning();
@@ -5184,11 +5253,105 @@ void CEulerSolver::ImplicitEuler_Iteration(CGeometry *geometry, CSolver **solver
       LinSysSol[total_index] = 0.0;
     }
   }
-  
+
   /*--- Solve or smooth the linear system ---*/
-  
-  IterLinSol = System.Solve(Jacobian, LinSysRes, LinSysSol, geometry, config);
-  
+  if(GPU_On)
+  {
+
+    /* pin the memory to improve performance
+        WARNING: Even though, internal error handling has been requested,
+                AMGX_SAFE_CALL needs to be used on this system call.
+                It is an exception to the general rule. */
+    if( Run_First == true )
+    {
+      h_x = &LinSysSol[0];
+      h_b = &LinSysRes[0];
+      h_values = Jacobian.GetBlock(0,0);
+
+      for(int count = 0; count < nPointDomain + 1; count++)
+        h_row_ptrs[count] = (int)(Jacobian.Getrow_ptr())[count];
+      
+      for(int count = 0; count < Jacobian.GetNNZ(); count++)
+        h_col_indices[count] = (int)(Jacobian.Getcol_ind())[count];
+
+      AMGX_SAFE_CALL(AMGX_pin_memory(h_x, nPointDomain * nVar * sizeof(su2double)));
+      AMGX_SAFE_CALL(AMGX_pin_memory(h_b, nPointDomain * nVar * sizeof(su2double)));
+      AMGX_SAFE_CALL(AMGX_pin_memory(h_col_indices,  Jacobian.GetNNZ() * sizeof(int)));
+      AMGX_SAFE_CALL(AMGX_pin_memory(h_row_ptrs, (nPointDomain + 1)*sizeof(int)));
+      AMGX_SAFE_CALL(AMGX_pin_memory(h_values, Jacobian.GetNNZ() *nVar * nVar * sizeof(su2double)));
+
+      /* set the connectivity information (for the matrix) */
+
+      AMGX_matrix_comm_from_maps_one_ring(A, 1, num_neighbors, neighbors, send_sizes, (const int **)send_maps, recv_sizes, (const int **)recv_maps);
+      /* set the connectivity information (for the vector) */
+      AMGX_vector_bind(x, A);
+      AMGX_vector_bind(b, A);
+
+
+      /* upload the matrix (and the connectivity information) */
+      int nnz_int =  Jacobian.GetNNZ();
+      int n_int = nPointDomain;
+      AMGX_matrix_upload_all(A, n_int, nnz_int, nVar, nVar, h_row_ptrs, h_col_indices, h_values, h_diag);
+      /* upload the vector (and the connectivity information) */
+      AMGX_vector_upload(x, nPointDomain, nVar, h_x);
+      AMGX_vector_upload(b, nPointDomain, nVar, h_b);
+
+    }
+    else
+    {
+        AMGX_SAFE_CALL(AMGX_pin_memory(h_x, nPointDomain * nVar * sizeof(su2double)));
+        AMGX_SAFE_CALL(AMGX_pin_memory(h_b, nPointDomain * nVar * sizeof(su2double)));
+        AMGX_SAFE_CALL(AMGX_pin_memory(h_values, Jacobian.GetNNZ() *nVar * nVar * sizeof(su2double)));
+
+        int nnz_int =  Jacobian.GetNNZ();
+        int n_int = nPointDomain;
+        AMGX_matrix_replace_coefficients(A, n_int, nnz_int, h_values, h_diag);
+        /* upload original vectors (and the connectivity information) */
+        AMGX_vector_upload(x, nPointDomain, nVar, h_x);
+        AMGX_vector_upload(b, nPointDomain, nVar, h_b);  
+    }
+    
+    SU2_MPI::Barrier(MPI_COMM_WORLD);
+    AMGX_solver_setup(solver, A);
+    /* solver solve */
+    // MPI barrier for stability (should be removed in practice to maximize performance)
+    SU2_MPI::Barrier(MPI_COMM_WORLD);
+    AMGX_solver_solve(solver, b, x);
+    /* check the status */
+    SU2_MPI::Barrier(MPI_COMM_WORLD);
+    AMGX_solver_get_status(solver, &status);
+
+    SU2_MPI::Barrier(MPI_COMM_WORLD);
+    AMGX_vector_download(x, h_x);
+    SU2_MPI::Barrier(MPI_COMM_WORLD);
+
+    if(Run_First == true)
+    {
+      AMGX_SAFE_CALL(AMGX_unpin_memory(h_x));
+      AMGX_SAFE_CALL(AMGX_unpin_memory(h_b));
+      AMGX_SAFE_CALL(AMGX_unpin_memory(h_values));
+      AMGX_SAFE_CALL(AMGX_unpin_memory(h_row_ptrs));
+      AMGX_SAFE_CALL(AMGX_unpin_memory(h_col_indices));
+
+      Run_First = false;
+    }
+    else
+    {
+      AMGX_SAFE_CALL(AMGX_unpin_memory(h_x));
+      AMGX_SAFE_CALL(AMGX_unpin_memory(h_b));
+      AMGX_SAFE_CALL(AMGX_unpin_memory(h_values));
+    }
+    
+
+
+    //System.GetResidual()
+    IterLinSol = 0;
+  }
+  else
+  {
+    IterLinSol = System.Solve(Jacobian, LinSysRes, LinSysSol, geometry, config);
+  }
+
   /*--- Store the value of the residual. ---*/
   
   SetResLinSolver(System.GetResidual());
@@ -14830,6 +14993,47 @@ CNSSolver::CNSSolver(CGeometry *geometry, CConfig *config, unsigned short iMesh)
   /*--- Add the solver name (max 8 characters) ---*/
   SolverName = "C.FLOW";
 
+  /*--- Initialize the AmgX solver --- */
+  if(config->GetGPUCalculate())
+  {
+    GPU_On = true;
+    printf("Call the Amgx api function in CNSSolver\n"); 
+    cudaGetDeviceCount(&gpu_count);
+
+    lrank = rank / gpu_count;
+
+    cudaSetDevice(lrank);
+
+    /* init */
+    AMGX_SAFE_CALL(AMGX_initialize());
+    AMGX_SAFE_CALL(AMGX_initialize_plugins());
+    /* system */
+    AMGX_SAFE_CALL(AMGX_install_signal_handler());
+    /* get mode */  
+    mode = AMGX_mode_dDDI;
+
+    sizeof_m_val = ((AMGX_GET_MODE_VAL(AMGX_MatPrecision, mode) == AMGX_matDouble)) ? sizeof(double) : sizeof(float);
+    sizeof_v_val = ((AMGX_GET_MODE_VAL(AMGX_VecPrecision, mode) == AMGX_vecDouble)) ? sizeof(double) : sizeof(float);
+
+    /* create config */
+    AMGX_SAFE_CALL(AMGX_config_create_from_file(&cfg, config->GetAMGXFilename().c_str()));
+
+    /* switch on internal error handling (no need to use AMGX_SAFE_CALL after this point) */
+    AMGX_SAFE_CALL(AMGX_config_add_parameters(&cfg, "exception_handling=1"));
+    /* create resources, matrix, vector and solver */
+    AMGX_SAFE_CALL(AMGX_resources_create(&rsrc, cfg, config->GetMPICommunicator(), 1, &lrank));
+    AMGX_SAFE_CALL(AMGX_matrix_create(&A, rsrc, mode));
+    AMGX_SAFE_CALL(AMGX_vector_create(&x, rsrc, mode));
+    AMGX_SAFE_CALL(AMGX_vector_create(&b, rsrc, mode));
+    AMGX_SAFE_CALL(AMGX_solver_create(&solver, rsrc, mode, cfg));
+
+    AMGX_SAFE_CALL(AMGX_config_get_default_number_of_rings(cfg, &nrings));
+
+    h_col_indices = (int *)malloc( Jacobian.GetNNZ() * sizeof(int));
+    h_row_ptrs = (int *)malloc( (nPointDomain + 1)*sizeof(int));
+
+  }
+
 }
 
 CNSSolver::~CNSSolver(void) {
@@ -14900,7 +15104,34 @@ CNSSolver::~CNSSolver(void) {
     }
     delete [] Buffet_Sensor;
   }
-  
+
+
+  /* --- Run the gpu postprocessing in NSSolver\n --- */
+  if(GPU_On)
+  {
+    printf("GPU postprocessing\n");
+    AMGX_SAFE_CALL(AMGX_free_system_maps_one_ring(h_row_ptrs, h_col_indices, h_values, h_diag, h_b, h_x, num_neighbors, neighbors, send_sizes, send_maps, recv_sizes, recv_maps));
+    // AMGX_free_system_maps_one_ring(h_row_ptrs, h_col_indices, h_values, h_diag, h_b, h_x, num_neighbors, neighbors, send_sizes, send_maps, recv_sizes, recv_maps);
+    /* destroy resources, matrix, vector and solver */
+    AMGX_SAFE_CALL(AMGX_solver_destroy(solver));
+    AMGX_SAFE_CALL(AMGX_vector_destroy(x));
+    AMGX_SAFE_CALL(AMGX_vector_destroy(b));
+    AMGX_SAFE_CALL(AMGX_matrix_destroy(A));
+    AMGX_SAFE_CALL(AMGX_resources_destroy(rsrc));
+    /* destroy config (need to use AMGX_SAFE_CALL after this point) */
+    AMGX_SAFE_CALL(AMGX_config_destroy(cfg));
+    /* shutdown and exit */
+    AMGX_SAFE_CALL(AMGX_finalize_plugins());
+    AMGX_SAFE_CALL(AMGX_finalize());
+    /* close the library (if it was dynamically loaded) */
+
+    cudaDeviceReset();
+
+    free(h_row_ptrs);
+    free(h_col_indices);
+    printf("complete run the gpu postprocessing in CNSSolver\n");
+  }  
+
 }
 
 void CNSSolver::Preprocessing(CGeometry *geometry, CSolver **solver_container, CConfig *config, unsigned short iMesh, unsigned short iRKStep, unsigned short RunTime_EqSystem, bool Output) {
