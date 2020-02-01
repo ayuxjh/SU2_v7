@@ -894,7 +894,9 @@ CEulerSolver::CEulerSolver(CGeometry *geometry, CConfig *config, unsigned short 
   if(config->GetGPUCalculate())
   {
     GPU_On = true;
-    printf("Call the Amgx api function in CEulerSolver\n"); 
+    if (rank == MASTER_NODE)
+      cout << "Call the Amgx api function in CEulerSolver" << endl;
+
     cudaGetDeviceCount(&gpu_count);
 
     lrank = rank / gpu_count;
@@ -906,66 +908,7 @@ CEulerSolver::CEulerSolver(CGeometry *geometry, CConfig *config, unsigned short 
     AMGX_SAFE_CALL(AMGX_initialize_plugins());
     /* system */
     AMGX_SAFE_CALL(AMGX_install_signal_handler());
-    /* get mode */  
-    mode = AMGX_mode_dDDI;
-
-    sizeof_m_val = ((AMGX_GET_MODE_VAL(AMGX_MatPrecision, mode) == AMGX_matDouble)) ? sizeof(double) : sizeof(float);
-    sizeof_v_val = ((AMGX_GET_MODE_VAL(AMGX_VecPrecision, mode) == AMGX_vecDouble)) ? sizeof(double) : sizeof(float);
-
-    /* create config */
-    AMGX_SAFE_CALL(AMGX_config_create_from_file(&cfg, config->GetAMGXFilename().c_str()));
-
-    /* switch on internal error handling (no need to use AMGX_SAFE_CALL after this point) */
-    AMGX_SAFE_CALL(AMGX_config_add_parameters(&cfg, "exception_handling=1"));
-    /* create resources, matrix, vector and solver */
-    SU2_MPI::Comm AMGX_Comm =  config->GetMPICommunicator();
-    AMGX_SAFE_CALL(AMGX_resources_create(&rsrc, cfg, &AMGX_Comm, 1, &lrank));
-    AMGX_SAFE_CALL(AMGX_matrix_create(&A, rsrc, mode));
-    AMGX_SAFE_CALL(AMGX_vector_create(&x, rsrc, mode));
-    AMGX_SAFE_CALL(AMGX_vector_create(&b, rsrc, mode));
-    AMGX_SAFE_CALL(AMGX_solver_create(&solver, rsrc, mode, cfg));
-
-    AMGX_SAFE_CALL(AMGX_config_get_default_number_of_rings(cfg, &nrings));
   
-    num_neighbors = geometry->nP2PSend;
-
-    if(num_neighbors != 0)
-    {
-        neighbors = (int *)malloc(sizeof(int) * num_neighbors);
-        for(int m_count = 0; m_count < num_neighbors; m_count ++ )
-          neighbors[m_count] = geometry->Neighbors_P2PSend[m_count];
-        
-        send_sizes = (int *)malloc(sizeof(int) * num_neighbors );
-        recv_sizes = (int *)malloc(sizeof(int) * num_neighbors );
-        for(int m_count = 0; m_count < num_neighbors; m_count ++ )
-        {
-          send_sizes[m_count] = geometry->nPoint_P2PSend[m_count + 1] - geometry->nPoint_P2PSend[m_count];
-          recv_sizes[m_count] = geometry->nPoint_P2PRecv[m_count + 1] - geometry->nPoint_P2PSend[m_count];
-        }
-
-        send_maps = (int **)malloc(sizeof(int*) * num_neighbors);
-    
-        for(int m_count = 0; m_count < num_neighbors; m_count ++ )
-        {
-          int sendcols = geometry->nPoint_P2PSend[m_count + 1] - geometry->nPoint_P2PSend[m_count];
-          int m_offset = geometry->nPoint_P2PSend[m_count];
-          send_maps[m_count] = (int *)malloc(sizeof(int) * sendcols);
-          for(int mm_count = 0; mm_count < sendcols; mm_count++)
-            send_maps[m_count][mm_count] = (int)geometry->Local_Point_P2PSend[m_offset + mm_count]; 
-        }
-
-        recv_maps = (int **)malloc(sizeof(int*) * num_neighbors);
-        
-        for(int m_count = 0; m_count < num_neighbors; m_count ++ )
-        {
-          int recvcols = geometry->nPoint_P2PRecv[m_count + 1] - geometry->nPoint_P2PRecv[m_count];
-          int m_offset = geometry->nPoint_P2PRecv[m_count];
-          recv_maps[m_count] = (int *)malloc(sizeof(int) * recvcols);
-          for(int mm_count = 0; mm_count < recvcols; mm_count++)
-            recv_maps[m_count][mm_count] = (int)geometry->Local_Point_P2PRecv[m_offset + mm_count]; 
-        }
-    }
-
   }
 
 
@@ -1463,8 +1406,9 @@ CEulerSolver::~CEulerSolver(void) {
 
     GPU_On = false;
     cudaDeviceReset();  
-    printf("complete run the gpu postprocessing in EulerSolver\n");
-    
+    if (rank == MASTER_NODE)
+      cout << "complete run the gpu postprocessing in EulerSolve" << endl;
+
   }  
 
 }
@@ -5299,35 +5243,92 @@ void CEulerSolver::ImplicitEuler_Iteration(CGeometry *geometry, CSolver **solver
   /*--- Solve or smooth the linear system ---*/
   if(GPU_On)
   {
-
-    /* pin the memory to improve performance
-        WARNING: Even though, internal error handling has been requested,
-                AMGX_SAFE_CALL needs to be used on this system call.
-                It is an exception to the general rule. */
     if( Run_First == true )
     {
       Run_First = false;
 
+      /* get mode */  
+      mode = AMGX_mode_dDDI;
+      // /* create config */      
+      AMGX_SAFE_CALL(AMGX_config_create_from_file(&cfg, config->GetAMGXFilename().c_str()));
+
+      /* switch on internal error handling (no need to use AMGX_SAFE_CALL after this point) */
+      AMGX_SAFE_CALL(AMGX_config_add_parameters(&cfg, "exception_handling=1"));
+      /* create resources, matrix, vector and solver */
+      SU2_MPI::Comm AMGX_Comm =  SU2_MPI::GetComm();
+      AMGX_SAFE_CALL(AMGX_resources_create(&rsrc, cfg, &AMGX_Comm, 1, &lrank));
+      AMGX_SAFE_CALL(AMGX_matrix_create(&A, rsrc, mode));
+      AMGX_SAFE_CALL(AMGX_vector_create(&x, rsrc, mode));
+      AMGX_SAFE_CALL(AMGX_vector_create(&b, rsrc, mode));
+      AMGX_SAFE_CALL(AMGX_solver_create(&solver, rsrc, mode, cfg));
+
+      AMGX_SAFE_CALL(AMGX_config_get_default_number_of_rings(cfg, &nrings));
+    
+      /*--- specified the h_x h_b h_values and initalize the h_row_ptrs and h_col_indices (long int to int) ---*/
       h_x = &LinSysSol[0];
       h_b = &LinSysRes[0];
       h_values = Jacobian.GetBlock(0,0);
 
-      h_row_ptrs = (int *)malloc( (nPointDomain + 1)*sizeof(int));
+      n_AmgX = (int)nPointDomain;
 
-      for(int count = 0; count < nPointDomain + 1; count++)
+      h_row_ptrs = (int *)malloc( (n_AmgX + 1)*sizeof(int));
+      for(int count = 0; count < n_AmgX + 1; count++)
         h_row_ptrs[count] = (int)(Jacobian.Getrow_ptr())[count];
       
-      int Mat_nnz = (int)(Jacobian.Getrow_ptr())[ nPointDomain + 1];
-      h_col_indices = (int *)malloc( Mat_nnz * sizeof(int));
-
-      for(int count = 0; count < Mat_nnz; count++)
+      nnz_AmgX = (int)(Jacobian.Getrow_ptr())[ n_AmgX ];
+      h_col_indices = (int *)malloc( nnz_AmgX * sizeof(int));
+      for(int count = 0; count < nnz_AmgX; count++)
         h_col_indices[count] = (int)(Jacobian.Getcol_ind())[count];
 
-      AMGX_SAFE_CALL(AMGX_pin_memory(h_x, nPointDomain * nVar * sizeof(su2double)));
-      AMGX_SAFE_CALL(AMGX_pin_memory(h_b, nPointDomain * nVar * sizeof(su2double)));
-      AMGX_SAFE_CALL(AMGX_pin_memory(h_col_indices, Mat_nnz * sizeof(int)));
-      AMGX_SAFE_CALL(AMGX_pin_memory(h_row_ptrs, (nPointDomain + 1)*sizeof(int)));
-      AMGX_SAFE_CALL(AMGX_pin_memory(h_values, Mat_nnz *nVar * nVar * sizeof(su2double)));
+      AMGX_SAFE_CALL(AMGX_pin_memory(h_x, n_AmgX * nVar * sizeof(su2double)));
+      AMGX_SAFE_CALL(AMGX_pin_memory(h_b, n_AmgX * nVar * sizeof(su2double)));
+      AMGX_SAFE_CALL(AMGX_pin_memory(h_col_indices, nnz_AmgX * sizeof(int)));
+      AMGX_SAFE_CALL(AMGX_pin_memory(h_row_ptrs, (n_AmgX + 1)*sizeof(int)));
+      AMGX_SAFE_CALL(AMGX_pin_memory(h_values, nnz_AmgX *nVar * nVar * sizeof(su2double)));
+
+
+      /*--- initialize the num_neighbors, neighbors, send_sizes, recv_sizes
+            send_maps and recv_maps ---*/
+      num_neighbors = geometry->nP2PSend;
+
+      if(num_neighbors != 0)
+      {
+          neighbors = (int *)malloc(sizeof(int) * num_neighbors);
+          for(int m_count = 0; m_count < num_neighbors; m_count ++ )
+            neighbors[m_count] = geometry->Neighbors_P2PSend[m_count];
+          
+          send_sizes = (int *)malloc(sizeof(int) * num_neighbors );
+          recv_sizes = (int *)malloc(sizeof(int) * num_neighbors );
+          for(int m_count = 0; m_count < num_neighbors; m_count ++ )
+          {
+            send_sizes[m_count] = geometry->nPoint_P2PSend[m_count + 1] - geometry->nPoint_P2PSend[m_count];
+            recv_sizes[m_count] = geometry->nPoint_P2PRecv[m_count + 1] - geometry->nPoint_P2PRecv[m_count];
+          }
+
+          send_maps = (int **)malloc(sizeof(int*) * num_neighbors);
+      
+          for(int m_count = 0; m_count < num_neighbors; m_count ++ )
+          {
+            int sendcols = geometry->nPoint_P2PSend[m_count + 1] - geometry->nPoint_P2PSend[m_count];
+            int m_offset = geometry->nPoint_P2PSend[m_count];
+            send_maps[m_count] = (int *)malloc(sizeof(int) * sendcols);
+            for(int mm_count = 0; mm_count < sendcols; mm_count++)
+              send_maps[m_count][mm_count] = (int)geometry->Local_Point_P2PSend[m_offset + mm_count]; 
+            
+          }
+
+          recv_maps = (int **)malloc(sizeof(int*) * num_neighbors);
+          
+          for(int m_count = 0; m_count < num_neighbors; m_count ++ )
+          {
+            int recvcols = geometry->nPoint_P2PRecv[m_count + 1] - geometry->nPoint_P2PRecv[m_count];
+            int m_offset = geometry->nPoint_P2PRecv[m_count];
+            recv_maps[m_count] = (int *)malloc(sizeof(int) * recvcols);
+            for(int mm_count = 0; mm_count < recvcols; mm_count++)
+              recv_maps[m_count][mm_count] = (int)geometry->Local_Point_P2PRecv[m_offset + mm_count]; 
+            
+          }
+      }
 
       /* set the connectivity information (for the matrix) */
       AMGX_matrix_comm_from_maps_one_ring(A, 1, num_neighbors, neighbors, send_sizes, (const int **)send_maps, recv_sizes, (const int **)recv_maps);
@@ -5335,24 +5336,21 @@ void CEulerSolver::ImplicitEuler_Iteration(CGeometry *geometry, CSolver **solver
       AMGX_vector_bind(x, A);
       AMGX_vector_bind(b, A);
 
+
       /* upload tGPUhe matrix (and the connectivity information) */
-      int n_int = nPointDomain;
-      AMGX_matrix_upload_all(A, n_int, Mat_nnz, nVar, nVar, h_row_ptrs, h_col_indices, h_values, h_diag);
+      AMGX_matrix_upload_all(A, n_AmgX, nnz_AmgX, nVar, nVar, h_row_ptrs, h_col_indices, h_values, h_diag);
       /* upload the vector (and the connectivity information) */
-      AMGX_vector_upload(x, n_int, nVar, h_x);
-      AMGX_vector_upload(b, n_int, nVar, h_b);
+      AMGX_vector_upload(x, n_AmgX, nVar, h_x);
+      AMGX_vector_upload(b, n_AmgX, nVar, h_b);
 
     }
     else
     {
-
-        int Mat_nnz = (int)(Jacobian.Getrow_ptr())[ nPointDomain + 1];
-        int n_int = nPointDomain;
         SU2_MPI::Barrier(MPI_COMM_WORLD);
-        AMGX_matrix_replace_coefficients(A, n_int, Mat_nnz, h_values, h_diag);
+        AMGX_matrix_replace_coefficients(A, n_AmgX, nnz_AmgX, h_values, h_diag);
         /* upload original vectors (and the connectivity information) */
-        AMGX_vector_upload(x, nPointDomain, nVar, h_x);
-        AMGX_vector_upload(b, nPointDomain, nVar, h_b);  
+        AMGX_vector_upload(x, n_AmgX, nVar, h_x);
+        AMGX_vector_upload(b, n_AmgX, nVar, h_b);  
     }
     
     SU2_MPI::Barrier(MPI_COMM_WORLD);
@@ -15022,11 +15020,13 @@ CNSSolver::CNSSolver(CGeometry *geometry, CConfig *config, unsigned short iMesh)
   if(config->GetGPUCalculate())
   {
     GPU_On = true;
-    printf("Call the Amgx api function in CNSSolver\n"); 
+    if (rank == MASTER_NODE)
+      cout << "Call the Amgx api function in CNSSolver" << endl;
+
     cudaGetDeviceCount(&gpu_count);
 
     lrank = rank / gpu_count;
-
+    lrank = 0;
     cudaSetDevice(lrank);
 
     /* init */
@@ -15034,64 +15034,7 @@ CNSSolver::CNSSolver(CGeometry *geometry, CConfig *config, unsigned short iMesh)
     AMGX_SAFE_CALL(AMGX_initialize_plugins());
     /* system */
     AMGX_SAFE_CALL(AMGX_install_signal_handler());
-    /* get mode */  
-    mode = AMGX_mode_dDDI;
 
-    sizeof_m_val = ((AMGX_GET_MODE_VAL(AMGX_MatPrecision, mode) == AMGX_matDouble)) ? sizeof(double) : sizeof(float);
-    sizeof_v_val = ((AMGX_GET_MODE_VAL(AMGX_VecPrecision, mode) == AMGX_vecDouble)) ? sizeof(double) : sizeof(float);
-
-    /* create config */
-    AMGX_SAFE_CALL(AMGX_config_create_from_file(&cfg, config->GetAMGXFilename().c_str()));
-
-    /* switch on internal error handling (no need to use AMGX_SAFE_CALL after this point) */
-    AMGX_SAFE_CALL(AMGX_config_add_parameters(&cfg, "exception_handling=1"));
-    /* create resources, matrix, vector and solver */
-    AMGX_SAFE_CALL(AMGX_resources_create(&rsrc, cfg, config->GetMPICommunicator(), 1, &lrank));
-    AMGX_SAFE_CALL(AMGX_matrix_create(&A, rsrc, mode));
-    AMGX_SAFE_CALL(AMGX_vector_create(&x, rsrc, mode));
-    AMGX_SAFE_CALL(AMGX_vector_create(&b, rsrc, mode));
-    AMGX_SAFE_CALL(AMGX_solver_create(&solver, rsrc, mode, cfg));
-
-    AMGX_SAFE_CALL(AMGX_config_get_default_number_of_rings(cfg, &nrings));
-
-    num_neighbors = geometry->nP2PSend;
-
-    if(num_neighbors != 0)
-    {
-        neighbors = (int *)malloc(sizeof(int) * num_neighbors);
-        for(int m_count = 0; m_count < num_neighbors; m_count ++ )
-          neighbors[m_count] = geometry->Neighbors_P2PSend[m_count];
-        
-        send_sizes = (int *)malloc(sizeof(int) * num_neighbors );
-        recv_sizes = (int *)malloc(sizeof(int) * num_neighbors );
-        for(int m_count = 0; m_count < num_neighbors; m_count ++ )
-        {
-          send_sizes[m_count] = geometry->nPoint_P2PSend[m_count + 1] - geometry->nPoint_P2PSend[m_count];
-          recv_sizes[m_count] = geometry->nPoint_P2PRecv[m_count + 1] - geometry->nPoint_P2PSend[m_count];
-        }
-
-        send_maps = (int **)malloc(sizeof(int*) * num_neighbors);
-    
-        for(int m_count = 0; m_count < num_neighbors; m_count ++ )
-        {
-          int sendcols = geometry->nPoint_P2PSend[m_count + 1] - geometry->nPoint_P2PSend[m_count];
-          int m_offset = geometry->nPoint_P2PSend[m_count];
-          send_maps[m_count] = (int *)malloc(sizeof(int) * sendcols);
-          for(int mm_count = 0; mm_count < sendcols; mm_count++)
-            send_maps[m_count][mm_count] = (int)geometry->Local_Point_P2PSend[m_offset + mm_count]; 
-        }
-
-        recv_maps = (int **)malloc(sizeof(int*) * num_neighbors);
-        
-        for(int m_count = 0; m_count < num_neighbors; m_count ++ )
-        {
-          int recvcols = geometry->nPoint_P2PRecv[m_count + 1] - geometry->nPoint_P2PRecv[m_count];
-          int m_offset = geometry->nPoint_P2PRecv[m_count];
-          recv_maps[m_count] = (int *)malloc(sizeof(int) * recvcols);
-          for(int mm_count = 0; mm_count < recvcols; mm_count++)
-            recv_maps[m_count][mm_count] = (int)geometry->Local_Point_P2PRecv[m_offset + mm_count]; 
-        }
-    }
   }
 
   
@@ -15171,8 +15114,6 @@ CNSSolver::~CNSSolver(void) {
   /* --- Run the gpu postprocessing in NSSolver\n --- */
   if(GPU_On)
   {
-    printf("GPU postprocessing\n");
-
     AMGX_SAFE_CALL(AMGX_unpin_memory(h_x));
     AMGX_SAFE_CALL(AMGX_unpin_memory(h_b));
     AMGX_SAFE_CALL(AMGX_unpin_memory(h_values));
@@ -15196,7 +15137,8 @@ CNSSolver::~CNSSolver(void) {
  
     GPU_On = false;
     cudaDeviceReset();  
-    printf("complete run the gpu postprocessing in CNSSolver\n");
+    if (rank == MASTER_NODE)
+      cout << "complete run the gpu postprocessing in CNSSolver\n" << endl;
   }  
 
 }

@@ -188,15 +188,12 @@ protected:
   AMGX_solver_handle solver;
   //status handling
   AMGX_SOLVE_STATUS status;
-  void *lib_handle;
   
   int nrings; //=1;
-  int n, nnz, block_dimx, block_dimy, block_size, num_neighbors;
+  int n_AmgX, nnz_AmgX, num_neighbors;
   int *neighbors;
   int *h_row_ptrs, *h_col_indices;
   su2double *h_values, *h_diag, *h_x, *h_b;
-  int sizeof_m_val;
-  int sizeof_v_val;
   int *send_sizes;
   int **send_maps;
   int *recv_sizes;

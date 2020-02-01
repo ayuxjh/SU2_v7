@@ -138,16 +138,12 @@ CSolver::CSolver(bool mesh_deform_mode) : System(mesh_deform_mode) {
   lrank = 0;
   Run_First = true;
 
-  lib_handle = NULL;
-  
   nrings = 1; //=1;
-  n = 0, nnz = 0, block_dimx = 0, block_dimy = 0, block_size = 0, num_neighbors = 0;
+  n_AmgX = 0, nnz_AmgX = 0, num_neighbors = 0;
   neighbors = NULL;
   h_row_ptrs = NULL, h_col_indices = NULL;
   h_values = NULL, h_diag = NULL, h_x = NULL, h_b = NULL;
 
-  sizeof_m_val = 0;
-  sizeof_v_val = 0;
   send_sizes = NULL;
   send_maps = NULL;
   recv_sizes = NULL;
