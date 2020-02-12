@@ -551,7 +551,7 @@ void CFluidIteration::Iterate(COutput *output,
        config[val_iZone]->GetKind_Solver() == DISC_ADJ_INC_RANS ) && !frozen_visc) {
     
     /*--- Solve the turbulence model ---*/
-    
+    printf("Solve the turbulence model\n");
     config[val_iZone]->SetGlobalParam(RANS, RUNTIME_TURB_SYS);
     integration[val_iZone][val_iInst][TURB_SOL]->SingleGrid_Iteration(geometry, solver, numerics,
                                                                      config, RUNTIME_TURB_SYS, val_iZone, val_iInst);

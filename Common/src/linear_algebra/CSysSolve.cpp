@@ -428,7 +428,7 @@ unsigned long CSysSolve<ScalarType>::FGMRES_LinSolver(const CSysVector<ScalarTyp
     precond(W[i], Z[i]);
     end_Smoother = clock();
     elapsed_Smoother += (double) (end_Smoother - start_Smoother)/CLOCKS_PER_SEC;
-    if(flagp%2)
+    // if(flagp%2)
       cout << "Smoother Time:" << elapsed_Smoother << endl;
     /*---  Add to Krylov subspace ---*/
 
