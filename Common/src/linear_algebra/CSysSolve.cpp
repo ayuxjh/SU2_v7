@@ -429,7 +429,7 @@ unsigned long CSysSolve<ScalarType>::FGMRES_LinSolver(const CSysVector<ScalarTyp
     end_Smoother = clock();
     elapsed_Smoother += (double) (end_Smoother - start_Smoother)/CLOCKS_PER_SEC;
     // if(flagp%2)
-      cout << "Smoother Time:" << elapsed_Smoother << endl;
+    //  cout << "Smoother Time:" << elapsed_Smoother << endl;
     /*---  Add to Krylov subspace ---*/
 
     mat_vec(Z[i], W[i+1]);
@@ -455,7 +455,7 @@ unsigned long CSysSolve<ScalarType>::FGMRES_LinSolver(const CSysVector<ScalarTyp
     if ((((monitoring) && (rank == MASTER_NODE)) && ((i+1) % 10 == 0)) && (rank == MASTER_NODE)) WriteHistory(i+1, beta, norm0);
 
   }
-
+  cout << "Smoother Time:" << elapsed_Smoother << endl;
   /*---  Solve the least-squares system and update solution ---*/
 
   SolveReduced(i, H, g, y);
